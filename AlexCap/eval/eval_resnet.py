@@ -79,8 +79,7 @@ def eval_split(kwargs):
         # Call forward_test to make predictions, and pass them to evaluator
         model.set_eval(False)
         captions = model.forward_test(data)
-        if model.opt.use_attention:
-            captions = captions[0]
+        captions = captions[0] if isinstance(captions, tuple) else captions
         gt_captions = model.llm.decode_sequence(data.gt_labels)
         evaluator.addResult(captions, gt_captions, info)
 

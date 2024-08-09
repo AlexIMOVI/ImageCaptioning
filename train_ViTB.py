@@ -2,21 +2,18 @@ import torch
 import time
 import json
 from easydict import EasyDict as edict
-import torch.optim.adam as ad
-from AlexCap.AlexCapModel import AlexCapModel
+import torch.optim.adamw as ad
+from torch.optim.lr_scheduler import LambdaLR
+from AlexCap.VitbModel import VitTransformer
 from AlexCap.AlexDataLoader import AlexDataLoader
-from AlexCap.my_train_opts import get_my_config, name_model
-from AlexCap.paper_opts import get_paper_config, name_paper_model
+from AlexCap.vitb_opts import get_ViTB_config, name_ViTB_model
 import AlexCap.eval.eval_resnet as eval_resnet
-from AlexCap.generate_vis import generate_caption_vis
-
+import numpy as np
 torch.autograd.set_detect_anomaly(True)
 torch.CUDA_LAUNCH_BLOCKING = 1
 torch.set_default_dtype(torch.float32)
 
-
-# opt = get_my_config()
-opt = get_paper_config()
+opt = get_ViTB_config()
 torch.manual_seed(opt.seed)
 if opt.gpu >= 0:
     device = opt.device
@@ -26,12 +23,8 @@ loader = AlexDataLoader(opt)
 opt.seq_length = loader.getSeqLength()
 opt.vocab_size = loader.getVocabSize()
 opt.idx_to_token = loader.info['idx_to_token']
-model = AlexCapModel(opt)
-# opt.loss_file, opt.result_file, opt.save_path = name_model(opt)
-opt.loss_file, opt.result_file, opt.save_path = name_paper_model(opt)
-
-max_iter = 600000 // opt.batch_size
-pad = 500 // opt.batch_size
+model = VitTransformer(opt)
+opt.loss_file, opt.result_file, opt.save_path = name_ViTB_model(opt)
 
 if opt.from_checkpoint:
     print(f'loading trained model: {opt.save_path[30:-4]}\n')
@@ -49,16 +42,27 @@ else:
     best_val_score = -1
     best_iter = 0
 best_val_loss = 10
-patience = 0
-model.features.requires_grad_(False)
 model.to(opt.device)
-params = model.parameters()
-optim = ad.Adam(params, opt.learning_rate, (opt.beta1, opt.beta2), opt.eps, weight_decay=opt.weight_decay)
-if opt.finetune_cnn and iter >= len(loader.train_ix) // opt.batch_size:
-    model.features.requires_grad_(True)
-    # model.features[10:].requires_grad_(True)
 
-
+def setup_scheduler(opt, model):
+    params = model.parameters()
+    optim = ad.AdamW(params, opt.learning_rate, (opt.beta1, opt.beta2), opt.eps, weight_decay=opt.weight_decay)
+    max_iter = (opt.save_checkpoint_every // opt.batch_size) * opt.num_epochs
+    pad = opt.save_checkpoint_every // opt.batch_size**2
+    warmup_steps = int(max_iter / opt.num_epochs)
+    min_lr = opt.min_lr / opt.learning_rate
+    if opt.use_scheduler:
+        def lr_lambda(current_step: int):
+            if current_step < warmup_steps:
+                return float(current_step) / max(1, warmup_steps)
+            else:
+                cosine_decay = 0.5 * (1.0 + np.cos(np.pi * (current_step - warmup_steps) / (max_iter - warmup_steps)))
+                return max(min_lr, cosine_decay)
+    else:
+        def lr_lambda(current_step: int):
+            return 1.0
+    scheduler = LambdaLR(optim, lr_lambda)
+    return optim, max_iter, pad, scheduler
 def write_json(file, path):
     with open(path, 'w') as f:
         f.write('[')
@@ -74,13 +78,11 @@ def lossFun():
     model.train()
     data = edict()
     data.image, data.gt_labels, info, _ = loader.get_batch(opt, opt.batch_size)
-    if opt.use_curriculum_learning:
-        model.set_teacher_prob(iter)
     t1 = time.time()
     loss = model.forward_train(data)
     t2 = time.time()
     if opt.clip_grad:
-        model.clip_gradient(5)
+        model.clip_gradient(1)
     losses_copy = {}
     losses_copy['captioning_loss'] = loss.item()
     losses_copy['epoch time in ms'] = (t2 - t1) * 1000
@@ -88,17 +90,14 @@ def lossFun():
         loss_history.append(losses_copy)
         write_json(loss_history, opt.loss_file)
 
-    if opt.use_curriculum_learning:
-        losses_copy['teacher prob'] = model.llm.teacher_prob.item()
     return losses_copy
 
-while iter < max_iter:
-    if opt.finetune_cnn and iter == len(loader.train_ix) // opt.batch_size:
-        model.features.requires_grad_(True)
-        # model.features[10:].requires_grad_(True)
+optim, max_iter, pad, scheduler = setup_scheduler(opt, model)
 
+while iter < max_iter:
     losses = lossFun()
     optim.step()
+    scheduler.step()
     x = ''
     for k, v in losses.items():
         x += f'{k}: {v:.5f}, '
@@ -108,24 +107,16 @@ while iter < max_iter:
                        'loader': loader,
                        'split': 'val',
                        'max_images': -1,
-                       'val_batch_size': 2}  # changed batch size
+                       'val_batch_size': 2}
         results = eval_resnet.eval_split(eval_kwargs)
         results_history.append(results)
         if results['ap_results']['meteor'] > best_val_score:
             torch.save(model.state_dict(), opt.save_path)
             best_val_score = results['ap_results']['meteor']
             best_iter = iter
-        if results['loss_results'] < best_val_loss:
-            best_val_loss = results['loss_results']
-            patience = 0
-        else:
-            patience += 1
         results['best_val_score'] = best_val_score
         results['best_iter'] = best_iter
         write_json(results_history, opt.result_file)
-        print(f'patience = {patience}\n')
-        if patience > 10:
-            break
 
     iter = iter + 1
 
@@ -133,7 +124,7 @@ while iter < max_iter:
 eval_kwargs = {'model': model,
                'loader': loader,
                'split': 'test',
-               'max_images': -1,
+               'max_images': 10,
                'val_batch_size': 2}
 results = eval_resnet.eval_split(eval_kwargs)
 
@@ -142,7 +133,6 @@ data = edict()
 data.image, data.gt_labels, info, _ = loader.get_batch(loader_kwargs, 1)
 path = info[0]['filename'][0]
 path = 'AlexCap/data/img_align_celeba/img_align_celeba/'+path
-generate_caption_vis(model, data, path)
 
 import numpy as np
 import matplotlib.pyplot as plt
