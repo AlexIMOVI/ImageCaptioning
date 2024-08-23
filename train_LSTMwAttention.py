@@ -6,7 +6,7 @@ import torch.optim.adam as ad
 from torch.optim.lr_scheduler import LambdaLR
 from AlexCap.LSTMwAttentionModel import AlexCapModel
 from AlexCap.AlexDataLoader import AlexDataLoader
-from AlexCap.lstmAttention_opts import get_LSTMwAttention_config, name_LSTMwAttention_model
+from AlexCap.LSTMwAttention_opts import get_LSTMwAttention_config, name_LSTMwAttention_model
 import AlexCap.eval.eval_resnet as eval_resnet
 from AlexCap.generate_vis import generate_caption_vis
 import numpy as np
@@ -152,9 +152,24 @@ eval_kwargs = {'model': model,
                'val_batch_size': 1}
 results = eval_resnet.eval_split(eval_kwargs)
 
-loader_kwargs = {'split': 2, 'iterate': True}
+metlist = []
+bleulist = []
+model.llm.use_beam = True
+for b in range(1, 6):
+    model.llm.beam_size = b
+    eval_kwargs = {'model': model,
+                   'loader': loader,
+                   'split': 'test',
+                   'max_images': -1,
+                   'val_batch_size': 1}
+    results = eval_resnet.eval_split(eval_kwargs)
+    metlist.append(results['ap_results']['meteor'])
+    bleulist.append(results['ap_results']['bleu'])
+
+
+loader_kwargs = {'split': 2, 'iterate': False}
 data = edict()
-data.image, data.gt_labels, info, _ = loader.get_batch(loader_kwargs, 1)
+data.image, data.gt_labels, info, _ = loader.get_batch(loader_kwargs, 1, args[4])
 path = info[0]['filename'][0]
 path = 'AlexCap/data/img_align_celeba/img_align_celeba/'+path
 generate_caption_vis(model, data, path)
@@ -170,7 +185,7 @@ def display_logs(file, model_name, save=False):
     fig, ax = plt.subplots(2, 1, sharex='col')
     ax[0].plot(steps, losses, 'bo-')
     ax[0].set_ylabel('loss')
-    ax[0].set_title('Loss and Average Precision (AP) during training, on evaluation dataset')
+    ax[0].set_title('Loss and METEOR score during training, on evaluation dataset')
     ax[1].plot(steps, meteor, 'go-')
     ax[1].set_ylabel('METEOR')
     fig.text(.5, .04, 'iter')

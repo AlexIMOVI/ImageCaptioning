@@ -150,46 +150,6 @@ class LanguageModel(nn.Module):
 
         return seq_list
 
-    def teacher_learning(self, image_vectors, gt_sequences):
-        image_vectors = self.image_encoder(image_vectors)
-        _, states = self.lstm(image_vectors)
-        gt_start = torch.empty(image_vectors.size(0), 1, dtype=torch.long, device=self.device).fill_(self.START_TOKEN)
-        input_vec = self.lookup_table(gt_start)
-        outputs = []
-        hiddens, states = self.lstm(input_vec, states)
-        output = self.rnn(hiddens)
-        outputs.append(output)
-        i = 0
-        while i < self.seq_length+1:
-            j = i
-            while torch.rand(1, device=self.device) <= self.teacher_prob and i < self.seq_length:
-                i += 1
-            if i < self.seq_length:
-                if i != j:
-                    input_vec = self.lookup_table(gt_sequences[:, j:i])
-                    out, states = self.lstm(input_vec, states)
-                    output = self.rnn(out)
-                    outputs.append(output)
-                    _, best_score = output[:, -1].topk(1)
-                    input_vec = self.lookup_table(best_score)
-                    hiddens, states = self.lstm(input_vec, states)
-                    output = self.rnn(hiddens)
-                    outputs.append(output)
-                else:
-                    _, best_score = output[:, -1].topk(1)
-                    input_vec = self.lookup_table(best_score)
-                    hiddens, states = self.lstm(input_vec, states)
-                    output = self.rnn(hiddens)
-                    outputs.append(output)
-            elif j < self.seq_length:
-                input_vec = self.lookup_table(gt_sequences[:, j:])
-                out, states = self.lstm(input_vec, states)
-                output = self.rnn(out)
-                outputs.append(output)
-            i += 1
-        outputs = torch.cat(outputs, dim=1)
-        return outputs
-
     def caption(self, img_features, beam_size):
         with torch.no_grad():
             prev_words = torch.empty(beam_size, 1).long().fill_(self.START_TOKEN)

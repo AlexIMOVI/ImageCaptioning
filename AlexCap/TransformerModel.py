@@ -1,7 +1,7 @@
 import torchvision
 import torch
 import torch.nn as nn
-from AlexCap.TransformerModule import Transformer2
+from AlexCap.TransformerModule import Transformer
 from AlexCap.CustomLoss import CustomCrossEntropyLoss
 
 
@@ -28,12 +28,11 @@ class AlexCapModel(nn.Module):
             fc_dim = 2048
 
 
-
         patch_size = 14 if opt.use_vggface else 7
-        self.llm = Transformer2(src_vocab_size=opt.vocab_size + 3,
+        self.llm = Transformer(src_vocab_size=opt.vocab_size,
                                fc_dim=fc_dim,
                                token_dict=opt.idx_to_token,
-                               max_length=opt.seq_length+1,
+                               max_length=opt.seq_length,
                                patch_size=patch_size,
                                embed_size=opt.embedding_size,
                                dropout=self.dropout,

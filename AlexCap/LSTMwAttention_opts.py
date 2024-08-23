@@ -20,30 +20,30 @@ def get_LSTMwAttention_config():
 
 
     # Optimization
-    cfg.use_scheduler = False
+    cfg.use_scheduler = True
     cfg.learning_rate = 3e-4
     cfg.embedding_size = 1024
     cfg.lstm_size = 768
     cfg.beta1 = 0.9
     cfg.beta2 = 0.999
     cfg.eps = 1e-8
-    cfg.weight_decay = 0.1
+    cfg.weight_decay = 1e-6
     cfg.min_lr = 1e-6
 
     # Model checkpointing
     cfg.num_epochs = 50
     cfg.save_checkpoint_every = 8489
-    cfg.save_path = "AlexCap/models_pth/best_model_LSTMwAttention.pth"
-    cfg.loss_file = 'AlexCap/loss_logs/loss_history_LSTMwAttention.json'
-    cfg.result_file = 'AlexCap/logs/results_history_LSTMwAttention.json'
+    cfg.save_path = "AlexCap/models_pth/best_model_sch_LSTMwAttention.pth"
+    cfg.loss_file = 'AlexCap/loss_logs/loss_history_sch_LSTMwAttention.json'
+    cfg.result_file = 'AlexCap/logs/results_history_sch_LSTMwAttention.json'
     cfg.batch_size = 12
     cfg.clip_grad = True
     cfg.iterate = False
-    cfg.from_checkpoint = True
+    cfg.from_checkpoint = False
     cfg.use_dropout = False
     cfg.drop_value = 0.5
     cfg.finetune_cnn = True
-    cfg.use_vggface = False
+    cfg.use_vggface = True
     # Misc
     cfg.id = ''
     cfg.seed = 123

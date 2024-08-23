@@ -9,7 +9,6 @@ class DenseCaptioningEvaluator:
         self.records = []
         self.n = 1
         self.npos = 0
-        self.id = utils.getopt(opt, 'id', '')
         self.device = 'cpu'
 
     def addResult(self, text, target_text, info):
@@ -46,7 +45,6 @@ def eval_split(kwargs):
     loader = utils.getopt(kwargs, 'loader')
     split = utils.getopt(kwargs, 'split', 'val')
     max_images = utils.getopt(kwargs, 'max_images', -1)
-    id = utils.getopt(kwargs, 'id', '')
     batch_size = utils.getopt(kwargs, 'val_batch_size', 1)
 
     assert split == 'val' or split == 'test', 'split must be "val" or "test"'
@@ -114,12 +112,12 @@ def eval_split(kwargs):
 
 
 def score_captions(records):
-    chencherry = bleu_score.SmoothingFunction()
+    smooth = bleu_score.SmoothingFunction().method4
     blob = {}
     scores = []
     bl_scores = []
     for r in records:
-        bl_score = round(bleu_score.sentence_bleu([word_tokenize(r['references'])], word_tokenize(r['candidate']), smoothing_function=chencherry.method1), 4)
+        bl_score = round(bleu_score.sentence_bleu([word_tokenize(r['references'])], word_tokenize(r['candidate']), smoothing_function=smooth), 4)
         bl_scores.append(bl_score)
         score = round(meteor([word_tokenize(r['references'])], word_tokenize(r['candidate'])), 4)
         scores.append(score)

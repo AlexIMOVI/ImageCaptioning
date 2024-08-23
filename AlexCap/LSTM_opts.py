@@ -21,9 +21,9 @@ def get_LSTM_config():
 
     # Optimization
     cfg.use_scheduler = False
-    cfg.learning_rate = 1e-5
-    cfg.embedding_size = 512
-    cfg.lstm_size = 512
+    cfg.learning_rate = 1e-4
+    cfg.embedding_size = 1024
+    cfg.lstm_size = 768
     cfg.beta1 = 0.9
     cfg.beta2 = 0.999
     cfg.eps = 1e-8
@@ -36,14 +36,14 @@ def get_LSTM_config():
     cfg.save_path = "AlexCap/models_pth/best_model_LSTM.pth"
     cfg.loss_file = 'AlexCap/loss_logs/loss_history_LSTM.json'
     cfg.result_file = 'AlexCap/logs/results_history_LSTM.json'
-    cfg.batch_size = 8
-    cfg.clip_grad = False
+    cfg.batch_size = 12
+    cfg.clip_grad = True
     cfg.iterate = False
     cfg.from_checkpoint = True
     cfg.use_dropout = False
     cfg.drop_value = 0.5
     cfg.num_layers = 1
-    cfg.finetune_cnn = True
+    cfg.finetune_cnn = False
     cfg.use_vggface = True
     # Misc
     cfg.id = ''

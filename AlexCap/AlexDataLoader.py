@@ -79,6 +79,7 @@ class AlexDataLoader:
                 ri = np.sort(torch.multinomial(torch.ones(max_index), batch_size).cpu().numpy())
                 ix = [split_ix[r] for r in ri]
             else:
+                ix = [split_ix[idx]]
                 ri = idx
 
         img = torch.from_numpy(self.h5_file['/images'][ix, :, :, :self.num_channels]).permute(0,3,1,2)

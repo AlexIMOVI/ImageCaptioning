@@ -20,7 +20,7 @@ def get_Transformer_config():
 
 
     # Optimization
-    cfg.use_scheduler = False
+    cfg.use_scheduler = True
     cfg.learning_rate = 3e-4
     cfg.embedding_size = 512
     cfg.Transformer_size = 512
@@ -36,15 +36,15 @@ def get_Transformer_config():
     cfg.save_path = "AlexCap/models_pth/best_model_Transformer.pth"
     cfg.loss_file = 'AlexCap/loss_logs/loss_history_Transformer.json'
     cfg.result_file = 'AlexCap/logs/results_history_Transformer.json'
-    cfg.batch_size = 8
-    cfg.clip_grad = False
+    cfg.batch_size = 12
+    cfg.clip_grad = True
     cfg.iterate = False
-    cfg.from_checkpoint = True
-    cfg.use_dropout = False
-    cfg.drop_value = 0.5
+    cfg.from_checkpoint = False
+    cfg.use_dropout = True
+    cfg.drop_value = 0.1
     cfg.num_layers = 1
     cfg.finetune_cnn = True
-    cfg.use_vggface = True
+    cfg.use_vggface = False
     # Misc
     cfg.id = ''
     cfg.seed = 123

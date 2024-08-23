@@ -1,4 +1,5 @@
 import torch
+import torch.nn as nn
 import time
 import json
 from easydict import EasyDict as edict
@@ -43,21 +44,44 @@ else:
     best_iter = 0
 best_val_loss = 10
 patience = 0
+finetuning_after_nepoch = 2
 model.features.requires_grad_(False)
 model.to(opt.device)
-if opt.finetune_cnn and iter >= len(loader.train_ix) // opt.batch_size:
+if opt.finetune_cnn and iter >= finetuning_after_nepoch * len(loader.train_ix) // opt.batch_size:
     if opt.use_vggface:
         model.features[10:].requires_grad_(True)
     else:
         model.features.requires_grad_(True)
 
 
+def collect_params(module, embed, params):
+    for child in module.children():
+        if list(child.children()):
+            collect_params(child, embed, params)
+        else:
+            if isinstance(child, nn.Embedding):
+                embed += list(child.parameters())
+            else:
+                params += list(child.parameters())
 def setup_scheduler(opt, model):
-    params = model.parameters()
-    optim = ad.AdamW(params, opt.learning_rate, (opt.beta1, opt.beta2), opt.eps, weight_decay=opt.weight_decay)
+    # embedding_params = []
+    # params = []
+    # collect_params(model, embedding_params, params)
+    embedding_params = model.features.parameters()
+    params = model.llm.parameters()
+    optim = ad.AdamW([{'params': params,
+                      'lr': opt.learning_rate,
+                      'weight_decay': opt.weight_decay,
+                      'betas': (opt.beta1, opt.beta2),
+                      'eps': opt.eps},
+                      {'params': embedding_params,
+                       'lr': 0,
+                       'weight_decay': opt.learning_rate,
+                       'betas': (opt.beta1, opt.beta2),
+                       'eps': opt.eps}])
     max_iter = (opt.save_checkpoint_every // opt.batch_size) * opt.num_epochs
     pad = opt.save_checkpoint_every // opt.batch_size**2
-    warmup_steps = int(max_iter / opt.num_epochs)
+    warmup_steps = int(max_iter*2 / opt.num_epochs)
     min_lr = opt.min_lr / opt.learning_rate
     if opt.use_scheduler:
         def lr_lambda(current_step: int):
@@ -122,7 +146,7 @@ while iter < max_iter:
                        'loader': loader,
                        'split': 'val',
                        'max_images': -1,
-                       'val_batch_size': 1}
+                       'val_batch_size': 2}
         results = eval_resnet.eval_split(eval_kwargs)
         results_history.append(results)
         if results['ap_results']['meteor'] > best_val_score:
@@ -148,14 +172,22 @@ eval_kwargs = {'model': model,
                'loader': loader,
                'split': 'test',
                'max_images': -1,
-               'val_batch_size': 1}
+               'val_batch_size': 2}
 results = eval_resnet.eval_split(eval_kwargs)
 
-loader_kwargs = {'split': 2, 'iterate': True}
-data = edict()
-data.image, data.gt_labels, info, _ = loader.get_batch(loader_kwargs, 1)
-path = info[0]['filename'][0]
-path = 'AlexCap/data/img_align_celeba/img_align_celeba/'+path
+metlist = []
+bleulist = []
+model.llm.use_beam = True
+for b in range(1, 6):
+    model.llm.beam_size = b
+    eval_kwargs = {'model': model,
+                   'loader': loader,
+                   'split': 'test',
+                   'max_images': -1,
+                   'val_batch_size': 1}
+    results = eval_resnet.eval_split(eval_kwargs)
+    metlist.append(results['ap_results']['meteor'])
+    bleulist.append(results['ap_results']['bleu'])
 
 import numpy as np
 import matplotlib.pyplot as plt

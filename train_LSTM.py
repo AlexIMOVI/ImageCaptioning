@@ -122,7 +122,7 @@ while iter < max_iter:
                        'loader': loader,
                        'split': 'val',
                        'max_images': -1,
-                       'val_batch_size': 1}
+                       'val_batch_size': opt.batch_size}
         results = eval_resnet.eval_split(eval_kwargs)
         results_history.append(results)
         if results['ap_results']['meteor'] > best_val_score:
@@ -148,15 +148,8 @@ eval_kwargs = {'model': model,
                'loader': loader,
                'split': 'test',
                'max_images': -1,
-               'val_batch_size': 1}
+               'val_batch_size': 32}
 results = eval_resnet.eval_split(eval_kwargs)
-
-loader_kwargs = {'split': 2, 'iterate': True}
-data = edict()
-data.image, data.gt_labels, info, _ = loader.get_batch(loader_kwargs, 1)
-path = info[0]['filename'][0]
-path = 'AlexCap/data/img_align_celeba/img_align_celeba/'+path
-generate_caption_vis(model, data, path)
 
 import numpy as np
 import matplotlib.pyplot as plt
@@ -169,7 +162,7 @@ def display_logs(file, model_name, save=False):
     fig, ax = plt.subplots(2, 1, sharex='col')
     ax[0].plot(steps, losses, 'bo-')
     ax[0].set_ylabel('loss')
-    ax[0].set_title('Loss and Average Precision (AP) during training, on evaluation dataset')
+    ax[0].set_title('Loss and METEOR score during training, on evaluation dataset')
     ax[1].plot(steps, meteor, 'go-')
     ax[1].set_ylabel('METEOR')
     fig.text(.5, .04, 'iter')

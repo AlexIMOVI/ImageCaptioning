@@ -220,29 +220,33 @@ class Transformer(nn.Module):
         )
 
         self.decoder = Decoder(
-            src_vocab_size,
+            src_vocab_size + 3,
             embed_size,
             num_layers,
             heads,
             forward_expansion,
             dropout,
             device,
-            max_length,
+            max_length + 1,
         )
-        self.sos = src_vocab_size -2
-        self.eos = src_vocab_size -1
+        self.sos = src_vocab_size + 1
+        self.eos = src_vocab_size + 2
         self.device = device
         self.token_dict = token_dict
-        self.max_length = max_length
+        self.max_length = max_length + 1
         self.use_beam = False
         self.beam_size = 3
 
-    def make_trg_mask(self, trg):
+    def make_trg_mask(self, trg, key_masking=True):
         N, trg_len = trg.shape
         trg_mask = torch.tril(torch.ones((trg_len, trg_len))).expand(
             N, 1, trg_len, trg_len
         )
-
+        if key_masking:
+            lengths = ((trg > 0) * 1.0).unsqueeze(1)
+            key_mask = torch.cat([torch.matmul(key.transpose(1, 0), key).unsqueeze(0) for key in lengths],
+                                 dim=0).unsqueeze(1)
+            trg_mask = trg_mask * key_mask
         return trg_mask.to(self.device)
 
     def decode_sequence(self, seq):
@@ -301,43 +305,58 @@ class Transformer(nn.Module):
             target[:, 1:T + 1] = gt_sequence
         return target
 
-    def beam_search(self, input, beam_width):
-        lsm = torch.nn.LogSoftmax(-1)
-        with torch.no_grad():
-            generated_tokens = torch.zeros(beam_width, self.max_length)
-            word_vec = self.fc(input).unsqueeze(1)
-            trg = torch.ones(word_vec.size(0), 1, dtype=torch.long) * self.sos
-            src_mask = None
-            enc_src = self.encoder(word_vec, src_mask)
-            trg_mask = self.make_trg_mask(trg)
-            out = self.decoder(trg, enc_src, src_mask, trg_mask)
-            prob, top_idx = torch.topk(lsm(out[:, -1, :]), k=beam_width, dim=-1)
-            top_idx = top_idx.reshape(-1, 1)
-            next_beams = trg.expand(beam_width, 1)
-            next_beams = torch.cat((next_beams, top_idx), dim=1)
-            generated_tokens[:, 0:1] = top_idx
-            enc_src = enc_src.expand(beam_width, -1, -1)
-            voc_size = out.size(-1)
-            for i in range(1, self.max_length):
-                beam_mask = self.make_trg_mask(next_beams)
-                out = self.decoder(next_beams, enc_src, src_mask, beam_mask)
-                next_prob = lsm(out[:, -1, :])
-                end_mask = torch.eq(top_idx[:, 0], self.eos)
-                next_prob[end_mask, :self.eos] = -100
-                next_prob[end_mask, self.eos] = 0
-                prob = next_prob + prob.reshape(-1, 1)
-                prob = torch.flatten(prob, start_dim=0)
-                prob, idx = torch.topk(prob, k=beam_width, dim=-1)
-                top_idx = torch.remainder(idx, voc_size).unsqueeze(-1)
-                best_candidates = (idx / voc_size).long()
+    def beam_search(self, input, beam_size):
+        sentences = torch.empty(beam_size, 1).fill_(self.sos).long()
+        input = input.expand(beam_size, input.size(1), input.size(2))
+        top_preds = torch.zeros(beam_size, 1)
 
-                generated_tokens = generated_tokens[best_candidates, :]
-                generated_tokens[:, i: i+1] = top_idx
-                if torch.all(top_idx == self.eos):
-                    break
-                next_beams = next_beams[best_candidates, :]
-                next_beams = torch.cat((next_beams, top_idx), dim=1)
-        return generated_tokens
+        completed_sentences = []
+        completed_sentences_preds = []
+
+        step = 1
+        while True:
+            trg_mask = self.make_trg_mask(sentences, False)
+            output = self.decoder(sentences, input, None, trg_mask)
+            output = output[:, -1]
+            output = top_preds.expand_as(output) + output
+
+            if step == 1:
+                top_preds, top_words = output[0].topk(beam_size, 0, True, True)
+            else:
+                top_preds, top_words = output.view(-1).topk(beam_size, 0, True, True)
+
+            prev_words_idxs = top_words // output.size(1)
+            next_words_idxs = top_words % output.size(1)
+
+            sentences = torch.cat((sentences[prev_words_idxs], next_words_idxs.unsqueeze(1)), dim=1)
+            incomplete = [idx for idx, next_word in enumerate(next_words_idxs) if next_word != self.eos]
+            complete = list(set(range(len(next_words_idxs))) - set(incomplete))
+
+            if len(complete) > 0:
+                completed_sentences.extend(sentences[complete])
+                completed_sentences_preds.extend(top_preds[complete])
+
+            beam_size -= len(complete)
+
+            if beam_size == 0:
+                break
+
+            sentences = sentences[incomplete]
+            input = input[:beam_size]
+            top_preds = top_preds[incomplete].unsqueeze(1)
+
+            if step >= self.max_length:
+                break
+            step += 1
+
+        if len(completed_sentences_preds) == 0:
+            sentence = sentences[0][1:].unsqueeze(0)
+        else:
+            idx = completed_sentences_preds.index(max(completed_sentences_preds))
+            sentence = completed_sentences[idx][1:].unsqueeze(0)
+
+        return sentence
+
 
     def forward(self, input, trg):
         if trg.nelement() > 0:
@@ -349,28 +368,22 @@ class Transformer(nn.Module):
 
             return out
         else:
+            word_vec = self.fc(input)
+            enc_src = self.encoder(word_vec, None)
             if self.use_beam:
-                res = torch.zeros(input.size(0), self.beam_size, self.max_length)
-                for i in range(input.size(0)):
-                    res[i] = self.beam_search(input[i:i+1], self.beam_size)
-                return res.int()
-                # return self.beam_search(input, 3)
+                return self.beam_search(enc_src, self.beam_size)
             else:
-                with torch.no_grad():
-                    generated_tokens = torch.zeros(input.size(0), self.max_length, dtype=torch.long)
-                    word_vec = self.fc(input)
-                    trg = torch.empty(word_vec.size(0), 1, dtype=torch.long).fill_(self.sos)
-                    src_mask = None
-                    enc_src = self.encoder(word_vec, src_mask)
+                generated_tokens = torch.zeros(input.size(0), self.max_length, dtype=torch.long)
+                trg = torch.empty(word_vec.size(0), 1, dtype=torch.long).fill_(self.sos)
 
-                    for i in range(self.max_length):
-                        trg_mask = self.make_trg_mask(trg)
-                        out = self.decoder(trg, enc_src, src_mask, trg_mask)
-                        next_token = out[:, -1, :].argmax(dim=1, keepdim=True)
-                        generated_tokens[:, i:i+1] = next_token
-                        trg = torch.cat((trg, next_token), dim=1)
-                        if torch.all(next_token == self.eos):
-                            break
+                for i in range(self.max_length):
+                    trg_mask = self.make_trg_mask(trg, False)
+                    out = self.decoder(trg, enc_src, None, trg_mask)
+                    next_token = out[:, -1, :].argmax(dim=1, keepdim=True)
+                    generated_tokens[:, i:i+1] = next_token
+                    trg = torch.cat((trg, next_token), dim=1)
+                    if torch.all(next_token == self.eos):
+                        break
 
                 return generated_tokens
 
@@ -391,22 +404,37 @@ class Transformer2(nn.Module):
     ):
 
         super(Transformer2, self).__init__()
-        self.trans = nn.Transformer(embed_size, heads, num_layers, num_layers, batch_first=True)
+
         self.fc = nn.Sequential(nn.Linear(fc_dim, embed_size), nn.ReLU(inplace=True))
-        self.fc_out = nn.Linear(embed_size, src_vocab_size)
-        self.embedding = nn.Embedding(src_vocab_size, embed_size)
-        self.input_encoding = nn.Embedding(patch_size*patch_size, embed_size)
-        self.target_encoding = nn.Embedding(max_length, embed_size)
-        self.d_model = torch.empty(1, device=device).fill_(embed_size)
-        self.sos = src_vocab_size - 2
-        self.eos = src_vocab_size - 1
+        self.decoder = Decoder(
+            src_vocab_size + 3,
+            embed_size,
+            num_layers,
+            heads,
+            forward_expansion,
+            dropout,
+            device,
+            max_length + 1,
+        )
+        self.sos = src_vocab_size + 1
+        self.eos = src_vocab_size + 2
         self.device = device
         self.token_dict = token_dict
-        self.max_length = max_length
-        self.temperature = 0.1
+        self.max_length = max_length + 1
+        self.use_beam = False
+        self.beam_size = 3
 
-    def generate_subsequent_masks(self, sz):
-        return torch.log(torch.tril(torch.ones(sz, sz)))
+    def make_trg_mask(self, trg, key_masking=True):
+        N, trg_len = trg.shape
+        trg_mask = torch.tril(torch.ones((trg_len, trg_len))).expand(
+            N, 1, trg_len, trg_len
+        )
+        if key_masking:
+            lengths = ((trg > 0) * 1.0).unsqueeze(1)
+            key_mask = torch.cat([torch.matmul(key.transpose(1, 0), key).unsqueeze(0) for key in lengths],
+                                 dim=0).unsqueeze(1)
+            trg_mask = trg_mask * key_mask
+        return trg_mask.to(self.device)
 
     def decode_sequence(self, seq):
         if seq.dim() == 2:
@@ -464,91 +492,82 @@ class Transformer2(nn.Module):
             target[:, 1:T + 1] = gt_sequence
         return target
 
-    def beam_search(self, input, beam_width):
-        lsm = torch.nn.LogSoftmax(-1)
-        with torch.no_grad():
-            generated_tokens = torch.zeros(beam_width, self.max_length)
-            word_vec = self.fc(input).unsqueeze(1)
-            trg = torch.ones(word_vec.size(0), 1, dtype=torch.long) * self.sos
-            src_mask = None
-            enc_src = self.encoder(word_vec, src_mask)
-            trg_mask = self.make_trg_mask(trg)
-            out = self.decoder(trg, enc_src, src_mask, trg_mask)
-            prob, top_idx = torch.topk(lsm(out[:, -1, :]), k=beam_width, dim=-1)
-            top_idx = top_idx.reshape(-1, 1)
-            next_beams = trg.expand(beam_width, 1)
-            next_beams = torch.cat((next_beams, top_idx), dim=1)
-            generated_tokens[:, 0:1] = top_idx
-            enc_src = enc_src.expand(beam_width, -1, -1)
-            voc_size = out.size(-1)
-            for i in range(1, self.max_length):
-                beam_mask = self.make_trg_mask(next_beams)
-                out = self.decoder(next_beams, enc_src, src_mask, beam_mask)
-                next_prob = lsm(out[:, -1, :])
-                end_mask = torch.eq(top_idx[:, 0], self.eos)
-                next_prob[end_mask, :self.eos] = -100
-                next_prob[end_mask, self.eos] = 0
-                prob = next_prob + prob.reshape(-1, 1)
-                prob = torch.flatten(prob, start_dim=0)
-                prob, idx = torch.topk(prob, k=beam_width, dim=-1)
-                top_idx = torch.remainder(idx, voc_size).unsqueeze(-1)
-                best_candidates = (idx / voc_size).long()
+    def beam_search(self, input, beam_size):
+        sentences = torch.empty(beam_size, 1).fill_(self.sos).long()
+        input = input.expand(beam_size, input.size(1), input.size(2))
+        top_preds = torch.zeros(beam_size, 1)
 
-                generated_tokens = generated_tokens[best_candidates, :]
-                generated_tokens[:, i: i+1] = top_idx
-                if torch.all(top_idx == self.eos):
-                    break
-                next_beams = next_beams[best_candidates, :]
-                next_beams = torch.cat((next_beams, top_idx), dim=1)
-        return generated_tokens
+        completed_sentences = []
+        completed_sentences_preds = []
 
-    def forward(self, input, sequences):
-        if sequences.nelement() > 0:
-            input_positions = torch.arange(0, input.size(1)).expand(input.size(0), input.size(1)).to(self.device)
-            encoder_input = self.fc(input) + self.input_encoding(input_positions)
+        step = 1
+        while True:
+            trg_mask = self.make_trg_mask(sentences, False)
+            output = self.decoder(sentences, input, None, trg_mask)
+            output = output[:, -1]
+            output = top_preds.expand_as(output) + output
 
-            target = self.get_target(sequences)
-            target_positions = torch.arange(0, target.size(1)).expand(target.size(0), target.size(1)).to(self.device)
-            embed_target = self.embedding(target) * torch.sqrt(self.d_model) + self.target_encoding(target_positions)
+            if step == 1:
+                top_preds, top_words = output[0].topk(beam_size, 0, True, True)
+            else:
+                top_preds, top_words = output.view(-1).topk(beam_size, 0, True, True)
 
-            key_mask = target == 0
-            trg_mask = (self.trans.generate_square_subsequent_mask(target.size(1)) < 0).to(self.device)
+            prev_words_idxs = top_words // output.size(1)
+            next_words_idxs = top_words % output.size(1)
 
-            decoder_output = self.trans(encoder_input, embed_target, tgt_mask=trg_mask, tgt_key_padding_mask=key_mask)
-            output = self.fc_out(decoder_output)
-            return output #F.log_softmax(output, dim=-1)
+            sentences = torch.cat((sentences[prev_words_idxs], next_words_idxs.unsqueeze(1)), dim=1)
+            incomplete = [idx for idx, next_word in enumerate(next_words_idxs) if next_word != self.eos]
+            complete = list(set(range(len(next_words_idxs))) - set(incomplete))
 
+            if len(complete) > 0:
+                completed_sentences.extend(sentences[complete])
+                completed_sentences_preds.extend(top_preds[complete])
+
+            beam_size -= len(complete)
+
+            if beam_size == 0:
+                break
+
+            sentences = sentences[incomplete]
+            input = input[:beam_size]
+            top_preds = top_preds[incomplete].unsqueeze(1)
+
+            if step >= self.max_length:
+                break
+            step += 1
+
+        if len(completed_sentences_preds) == 0:
+            sentence = sentences[0][1:].unsqueeze(0)
         else:
-            generated_tokens = torch.zeros(input.size(0), self.max_length, dtype=torch.long)
-            input_positions = torch.arange(0, input.size(1)).expand(input.size(0), input.size(1)).to(self.device)
-            encoder_input = self.fc(input) + self.input_encoding(input_positions)
-            trg = torch.empty(input.size(0), 1, dtype=torch.long).fill_(self.sos)
+            idx = completed_sentences_preds.index(max(completed_sentences_preds))
+            sentence = completed_sentences[idx][1:].unsqueeze(0)
 
-            for i in range(self.max_length):
-                trg_mask = (self.trans.generate_square_subsequent_mask(trg.size(1)) < 0).to(self.device)
-                target_positions = torch.arange(0, trg.size(1)).expand(trg.size(0), trg.size(1)).to(self.device)
-                embed_trg = self.embedding(trg) + self.target_encoding(target_positions)
-                decoder_output = self.trans(encoder_input, embed_trg, tgt_mask=trg_mask)
-                weights = torch.exp(F.log_softmax(self.fc_out(decoder_output)[:, -1], dim=-1) / self.temperature)
-                next_token = torch.multinomial(weights, 1)
-                generated_tokens[:, i:i + 1] = next_token
-                trg = torch.cat((trg, next_token), dim=1)
-                if torch.all(next_token == self.eos):
-                    break
-            # generated_tokens = torch.zeros(input.size(0), self.max_length, dtype=torch.long)
-            # encoder_input = self.fc(input)
-            # trg = torch.empty(input.size(0), 1, dtype=torch.long).fill_(self.sos)
-            #
-            # for i in range(self.max_length):
-            #     trg_mask = (self.trans.generate_square_subsequent_mask(trg.size(1)) < 0).to(self.device)
-            #     embed_trg = self.embedding(trg)
-            #     decoder_output = self.trans(encoder_input, embed_trg, tgt_mask=trg_mask)
-            #     out = self.fc_out(decoder_output)
-            #     next_token = out[:, -1, :].argmax(dim=1, keepdim=True)
-            #     generated_tokens[:, i:i + 1] = next_token
-            #     trg = torch.cat((trg, next_token), dim=1)
-            #     if torch.all(next_token == self.eos):
-            #         break
+        return sentence
 
-            return generated_tokens
+
+    def forward(self, input, trg):
+        if trg.nelement() > 0:
+            word_vec = self.fc(input)
+            trg_mask = self.make_trg_mask(self.get_target(trg))
+            out = self.decoder(self.get_target(trg), word_vec, None, trg_mask)
+
+            return out
+        else:
+            word_vec = self.fc(input)
+            if self.use_beam:
+                return self.beam_search(word_vec, self.beam_size)
+            else:
+                generated_tokens = torch.zeros(input.size(0), self.max_length, dtype=torch.long)
+                trg = torch.empty(word_vec.size(0), 1, dtype=torch.long).fill_(self.sos)
+                src_mask = None
+                for i in range(self.max_length):
+                    trg_mask = self.make_trg_mask(trg, False)
+                    out = self.decoder(trg, word_vec, src_mask, trg_mask)
+                    next_token = out[:, -1, :].argmax(dim=1, keepdim=True)
+                    generated_tokens[:, i:i+1] = next_token
+                    trg = torch.cat((trg, next_token), dim=1)
+                    if torch.all(next_token == self.eos):
+                        break
+
+                return generated_tokens
 

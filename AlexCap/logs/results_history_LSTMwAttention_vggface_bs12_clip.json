@@ -1,0 +1,3 @@
+[{"loss_results": 3.162011320862686, "ap_results": {"meteor": 0.28551808453718586, "bleu": 0.05713253076511505}, "best_val_score": 0.28551808453718586, "best_iter": 706},
+{"loss_results": 2.914412170760194, "ap_results": {"meteor": 0.33034810058855085, "bleu": 0.0779484216158374}, "best_val_score": 0.33034810058855085, "best_iter": 1413},
+{"loss_results": 2.833951216129264, "ap_results": {"meteor": 0.33399919743178164, "bleu": 0.08352161583734619}, "best_val_score": 0.33399919743178164, "best_iter": 2120}]

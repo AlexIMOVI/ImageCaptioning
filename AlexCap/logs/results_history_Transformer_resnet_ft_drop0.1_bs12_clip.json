@@ -1,0 +1,5 @@
+[{"loss_results": 3.1219938917552934, "ap_results": {"meteor": 0.32119807383627624, "bleu": 0.07654510433386817}, "best_val_score": 0.32119807383627624, "best_iter": 706},
+{"loss_results": 2.7737127969199924, "ap_results": {"meteor": 0.32350963081861983, "bleu": 0.07958282504012827}, "best_val_score": 0.32350963081861983, "best_iter": 1413},
+{"loss_results": 2.6528097890544666, "ap_results": {"meteor": 0.32212899946495493, "bleu": 0.07131583734617443}, "best_val_score": 0.32350963081861983, "best_iter": 1413},
+{"loss_results": 2.559818497438875, "ap_results": {"meteor": 0.3439279828785448, "bleu": 0.07865575173889772}, "best_val_score": 0.3439279828785448, "best_iter": 2827},
+{"loss_results": 2.5134484641624684, "ap_results": {"meteor": 0.3566827715355805, "bleu": 0.08378667736757603}, "best_val_score": 0.3566827715355805, "best_iter": 3534}]

@@ -39,10 +39,10 @@ def get_ViTB_config():
     cfg.batch_size = 12
     cfg.clip_grad = True
     cfg.iterate = False
-    cfg.from_checkpoint = False
+    cfg.from_checkpoint = True
     cfg.use_dropout = True
     cfg.drop_value = 0.1
-    cfg.trained_encoder = False
+    cfg.trained_encoder = True
     # Misc
     cfg.id = ''
     cfg.seed = 123
