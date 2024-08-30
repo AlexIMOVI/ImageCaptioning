@@ -56,8 +56,8 @@ class Decoder(nn.Module):
         self.attention = Attention(image_vector_dim, rnn_size)
         self.embedding = nn.Embedding(vocab_size+3, embedding_size)
         self.lstm = nn.LSTMCell(embedding_size + image_vector_dim, rnn_size)
-        self.use_beam = False
-        self.beam_size = 3
+        self.use_beam = True
+        self.beam_size = 5
 
     def forward(self, img_features, captions):
         if captions.nelement() > 0:

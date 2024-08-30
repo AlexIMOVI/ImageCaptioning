@@ -1,4 +1,4 @@
-from AlexCap.densecap_utils import utils
+from AlexCap.my_utils import getopt
 import torch
 from easydict import EasyDict as edict
 from nltk.translate import meteor, bleu_score
@@ -41,11 +41,11 @@ class DenseCaptioningEvaluator:
         return results
 
 def eval_split(kwargs):
-    model = utils.getopt(kwargs, 'model')
-    loader = utils.getopt(kwargs, 'loader')
-    split = utils.getopt(kwargs, 'split', 'val')
-    max_images = utils.getopt(kwargs, 'max_images', -1)
-    batch_size = utils.getopt(kwargs, 'val_batch_size', 1)
+    model = getopt(kwargs, 'model')
+    loader = getopt(kwargs, 'loader')
+    split = getopt(kwargs, 'split', 'val')
+    max_images = getopt(kwargs, 'max_images', -1)
+    batch_size = getopt(kwargs, 'val_batch_size', 1)
 
     assert split == 'val' or split == 'test', 'split must be "val" or "test"'
     split_to_int = {'val': 1, 'test': 2}
@@ -67,9 +67,6 @@ def eval_split(kwargs):
         info = info[0]  # Since we are only using a single image
 
         # Call forward_backward to compute losses
-        model.timing = False
-        model.dump_vars = False
-        model.cnn_backward = False
         model.set_eval(True)
         losses = model.forward_train(data)
         all_losses += losses.item()
@@ -97,9 +94,6 @@ def eval_split(kwargs):
             break
 
     loss_results = batch_size*all_losses / counter
-    # print('Loss stats:')
-    # print(loss_results)
-    # print('Average loss: ', loss_results['total_loss'])
 
     ap_results = evaluator.evaluate(verbose=True)
     print(f'METEOR: {ap_results["meteor"]}')

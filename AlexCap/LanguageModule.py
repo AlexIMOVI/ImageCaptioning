@@ -38,7 +38,6 @@ class LanguageModel(nn.Module):
 
         self.START_TOKEN = self.vocab_size + 1
         self.END_TOKEN = self.vocab_size + 2
-        self.NULL_TOKEN = 0
         self.lookup_table = nn.Embedding(V + 3, W, device=self.device)
         self.use_beam = False
         self.beam_size = 3

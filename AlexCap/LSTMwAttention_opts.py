@@ -39,11 +39,11 @@ def get_LSTMwAttention_config():
     cfg.batch_size = 12
     cfg.clip_grad = True
     cfg.iterate = False
-    cfg.from_checkpoint = False
+    cfg.from_checkpoint = True
     cfg.use_dropout = False
     cfg.drop_value = 0.5
     cfg.finetune_cnn = True
-    cfg.use_vggface = True
+    cfg.use_vggface = False
     # Misc
     cfg.id = ''
     cfg.seed = 123

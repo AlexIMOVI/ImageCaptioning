@@ -5,11 +5,13 @@ from easydict import EasyDict as edict
 import torch.optim.adam as ad
 from torch.optim.lr_scheduler import LambdaLR
 from AlexCap.LSTMwAttentionModel import AlexCapModel
-from AlexCap.AlexDataLoader import AlexDataLoader
+from AlexCap.MyDataLoader import AlexDataLoader
 from AlexCap.LSTMwAttention_opts import get_LSTMwAttention_config, name_LSTMwAttention_model
 import AlexCap.eval.eval_resnet as eval_resnet
 from AlexCap.generate_vis import generate_caption_vis
+from AlexCap.my_utils import write_json, display_logs
 import numpy as np
+
 torch.autograd.set_detect_anomaly(True)
 torch.CUDA_LAUNCH_BLOCKING = 1
 torch.set_default_dtype(torch.float32)
@@ -72,15 +74,7 @@ def setup_scheduler(opt, model):
             return 1.0
     scheduler = LambdaLR(optim, lr_lambda)
     return optim, max_iter, pad, scheduler
-def write_json(file, path):
-    with open(path, 'w') as f:
-        f.write('[')
-        for i, item in enumerate(file):
-            json.dump(item,f)
-            if i != len(file)-1:
-                f.write(',\n')
-            else:
-                f.write(']\n')
+
 def lossFun():
 
     optim.zero_grad(set_to_none=True)
@@ -145,12 +139,6 @@ while iter < max_iter:
     iter = iter + 1
 
 """MODEL EVALUATION ON TEST DATASET"""
-eval_kwargs = {'model': model,
-               'loader': loader,
-               'split': 'test',
-               'max_images': -1,
-               'val_batch_size': 1}
-results = eval_resnet.eval_split(eval_kwargs)
 
 metlist = []
 bleulist = []
@@ -166,33 +154,7 @@ for b in range(1, 6):
     metlist.append(results['ap_results']['meteor'])
     bleulist.append(results['ap_results']['bleu'])
 
-
-loader_kwargs = {'split': 2, 'iterate': False}
-data = edict()
-data.image, data.gt_labels, info, _ = loader.get_batch(loader_kwargs, 1, args[4])
-path = info[0]['filename'][0]
-path = 'AlexCap/data/img_align_celeba/img_align_celeba/'+path
-generate_caption_vis(model, data, path)
-
-import numpy as np
-import matplotlib.pyplot as plt
-def display_logs(file, model_name, save=False):
-
-    losses = [o['loss_results'] for o in file]
-    step = file[0]['best_iter'] + 1
-    steps = np.arange(step, len(file) * step + 1, step)
-    meteor = [o['ap_results']['meteor'] for o in file]
-    fig, ax = plt.subplots(2, 1, sharex='col')
-    ax[0].plot(steps, losses, 'bo-')
-    ax[0].set_ylabel('loss')
-    ax[0].set_title('Loss and METEOR score during training, on evaluation dataset')
-    ax[1].plot(steps, meteor, 'go-')
-    ax[1].set_ylabel('METEOR')
-    fig.text(.5, .04, 'iter')
-    if save:
-        plt.savefig('AlexCap/graphs/'+model_name+'.png')
-    plt.show()
-
+generate_caption_vis()
 name = opt.save_path[30:-4]
 display_logs(results_history, name, True)
 

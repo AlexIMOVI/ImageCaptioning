@@ -6,10 +6,20 @@ import torchvision.transforms.functional as Fv
 import torch.nn.functional as F
 from math import ceil
 import matplotlib.cm as cm
-
-def generate_caption_vis(model, data, path, scores, i):
+from AlexCap.eval.eval_resnet import score_captions
+from easydict import EasyDict as edict
+def generate_caption_vis(model, data, path, use_dataset_img):
     pred, alphas = model.forward_test(data)
+    if use_dataset_img:
+        gt_caption = model.llm.decode_sequence(data.gt_labels)[0]
+        record = edict()
+        record.candidate = pred[0]
+        record.references = gt_caption
+        blob = score_captions([record])
+        meteor = blob['average_score']
+        bleu = blob['average_bl_score']
     caption = pred[0].split()
+
     img = Image.open(path)
     w, h = img.size
     if w > h:
@@ -24,21 +34,27 @@ def generate_caption_vis(model, data, path, scores, i):
     img = np.array(resized_img.convert('RGB').getdata()).reshape(224, 224, 3)
     img = img.astype('float32') / 255
 
-    num_words = len(caption)
+    num_words = np.size(caption)
     w = np.round(np.sqrt(num_words)).astype(int)
     h = np.ceil(np.float32(num_words) / w).astype(int)
     alphas = alphas.squeeze(0)
     fig, ax = plt.subplots()
     ax.imshow(img)
     ax.axis('off')
-
-    caption_txt = f'GT: {model.llm.decode_sequence(data.gt_labels)[0]}\nPRED: {pred[0]}'
+    if use_dataset_img:
+        caption_txt = f'GT: {gt_caption}'
+        # caption_txt = f'GT: {gt_caption}\nPRED: {pred[0]}'
+    else:
+        caption_txt = f'PRED: {pred[0]}'
     text_obj = fig.text(0.5, 0.01, caption_txt, wrap=True, horizontalalignment='center', fontsize=12)
     renderer = fig.canvas.get_renderer()
     bbox = text_obj.get_window_extent(renderer=renderer)
     text_height = bbox.height / fig.dpi
     plt.subplots_adjust(bottom=text_height / 5.5 + 0.05)
-    plt.savefig(f'AlexCap/data/vis_results/{i}_M{round(scores[0]*100,2)}_B{round(scores[1]*100,2)}.jpg')
+    if use_dataset_img:
+        plt.savefig(f'AlexCap/data/vis_results/{path[-10:-4]}_M{round(meteor*100,2)}_B{round(bleu*100,2)}.jpg')
+    else:
+        plt.savefig(f'AlexCap/data/vis_results/test.jpg')
     plt.show()
     ax1 = plt.subplot(w, h, 1)
     plt.imshow(img)
@@ -60,11 +76,10 @@ def generate_caption_vis(model, data, path, scores, i):
             shape_size = 7
             scale = 32
         alpha_img = F.interpolate(alphas[idx, :].reshape(1, 1, shape_size, shape_size), scale_factor=scale, mode='bilinear', align_corners=True)
-        # kernel_size = 4*20+1
-        # alpha_img = Fv.gaussian_blur(alpha_img, kernel_size=[kernel_size, kernel_size], sigma=[20, 20])
 
         plt.imshow(alpha_img.squeeze().cpu(), alpha=0.8)
         plt.set_cmap(cm.get_cmap('Greys_r'))
         plt.axis('off')
-    plt.savefig(f'AlexCap/data/vis_results/attention_{i}_M{round(scores[0] * 100, 2)}_B{round(scores[1] * 100, 2)}.jpg')
+    if use_dataset_img:
+        plt.savefig(f'AlexCap/data/vis_results/{path[-10:-4]}_attention_M{round(meteor * 100, 2)}_B{round(bleu * 100, 2)}.jpg')
     plt.show()

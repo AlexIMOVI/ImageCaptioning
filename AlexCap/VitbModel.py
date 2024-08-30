@@ -181,8 +181,8 @@ class VitTransformer(nn.Module):
         self.token_dict = opt.idx_to_token
         self.max_length = opt.seq_length+1
         self.embed_size = opt.embedding_size
-        self.use_beam = False
-        self.beam_size = 3
+        self.use_beam = True
+        self.beam_size = 4
         self.criterion = CustomCrossEntropyLoss()
         self.eval_mode = False
         self.llm = type('PrefixObject', (object,), {})()

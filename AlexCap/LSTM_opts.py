@@ -43,8 +43,8 @@ def get_LSTM_config():
     cfg.use_dropout = False
     cfg.drop_value = 0.5
     cfg.num_layers = 1
-    cfg.finetune_cnn = False
-    cfg.use_vggface = True
+    cfg.finetune_cnn = True
+    cfg.use_vggface = False
     # Misc
     cfg.id = ''
     cfg.seed = 123

@@ -6,10 +6,12 @@ from easydict import EasyDict as edict
 import torch.optim.adamw as ad
 from torch.optim.lr_scheduler import LambdaLR
 from AlexCap.TransformerModel import AlexCapModel
-from AlexCap.AlexDataLoader import AlexDataLoader
+from AlexCap.MyDataLoader import AlexDataLoader
 from AlexCap.Transformer_opts import get_Transformer_config, name_Transformer_model
 import AlexCap.eval.eval_resnet as eval_resnet
+from AlexCap.my_utils import write_json, display_logs
 import numpy as np
+
 torch.autograd.set_detect_anomaly(True)
 torch.CUDA_LAUNCH_BLOCKING = 1
 torch.set_default_dtype(torch.float32)
@@ -95,15 +97,7 @@ def setup_scheduler(opt, model):
             return 1.0
     scheduler = LambdaLR(optim, lr_lambda)
     return optim, max_iter, pad, scheduler
-def write_json(file, path):
-    with open(path, 'w') as f:
-        f.write('[')
-        for i, item in enumerate(file):
-            json.dump(item,f)
-            if i != len(file)-1:
-                f.write(',\n')
-            else:
-                f.write(']\n')
+
 def lossFun():
 
     optim.zero_grad(set_to_none=True)
@@ -168,12 +162,6 @@ while iter < max_iter:
     iter = iter + 1
 
 """MODEL EVALUATION ON TEST DATASET"""
-eval_kwargs = {'model': model,
-               'loader': loader,
-               'split': 'test',
-               'max_images': -1,
-               'val_batch_size': 2}
-results = eval_resnet.eval_split(eval_kwargs)
 
 metlist = []
 bleulist = []
@@ -188,25 +176,6 @@ for b in range(1, 6):
     results = eval_resnet.eval_split(eval_kwargs)
     metlist.append(results['ap_results']['meteor'])
     bleulist.append(results['ap_results']['bleu'])
-
-import numpy as np
-import matplotlib.pyplot as plt
-def display_logs(file, model_name, save=False):
-
-    losses = [o['loss_results'] for o in file]
-    step = file[0]['best_iter'] + 1
-    steps = np.arange(step, len(file) * step + 1, step)
-    meteor = [o['ap_results']['meteor'] for o in file]
-    fig, ax = plt.subplots(2, 1, sharex='col')
-    ax[0].plot(steps, losses, 'bo-')
-    ax[0].set_ylabel('loss')
-    ax[0].set_title('Loss and Average Precision (AP) during training, on evaluation dataset')
-    ax[1].plot(steps, meteor, 'go-')
-    ax[1].set_ylabel('METEOR')
-    fig.text(.5, .04, 'iter')
-    if save:
-        plt.savefig('AlexCap/graphs/'+model_name+'.png')
-    plt.show()
 
 name = opt.save_path[30:-4]
 display_logs(results_history, name, True)
